@@ -4,8 +4,65 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "5b21e34b1745c07c7ec447cd46916d30",
+    "content-hash": "fa6de03167b244e6929125be1187499b",
     "packages": [
+        {
+            "name": "azozzalfiras/aapanel-api",
+            "version": "dev-main",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/AzozzALFiras/aapanel-api.git",
+                "reference": "a66f11cce71cfefb2aac3c58f891179d94c918fb"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/AzozzALFiras/aapanel-api/zipball/a66f11cce71cfefb2aac3c58f891179d94c918fb",
+                "reference": "a66f11cce71cfefb2aac3c58f891179d94c918fb",
+                "shasum": ""
+            },
+            "require": {
+                "ext-curl": "*",
+                "ext-json": "*",
+                "php": "^7.2 || ^8.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^8.0 || ^9.0 || ^10.0"
+            },
+            "default-branch": true,
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "AzozzALFiras\\AAPanelAPI\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Azozz ALFiras",
+                    "email": "3zozz@aevonx.app",
+                    "role": "Developer"
+                }
+            ],
+            "description": "A comprehensive PHP client library for the aaPanel (BaoTa) API - manage websites, databases, FTP, SSL, files, cron, firewall and more",
+            "homepage": "https://github.com/AzozzALFiras/aapanel-api",
+            "keywords": [
+                "AAPanel",
+                "api",
+                "baota",
+                "hosting",
+                "panel",
+                "php",
+                "server-management"
+            ],
+            "support": {
+                "issues": "https://github.com/AzozzALFiras/aapanel-api/issues",
+                "source": "https://github.com/AzozzALFiras/aapanel-api/tree/main"
+            },
+            "time": "2026-03-14T19:44:11+00:00"
+        },
         {
             "name": "brick/math",
             "version": "0.14.8",
@@ -8613,12 +8670,14 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": [],
+    "stability-flags": {
+        "azozzalfiras/aapanel-api": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
         "php": "^8.2"
     },
-    "platform-dev": [],
+    "platform-dev": {},
     "plugin-api-version": "2.6.0"
 }

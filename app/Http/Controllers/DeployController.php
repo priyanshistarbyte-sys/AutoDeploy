@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
-use App\Services\SSHService;
+use Illuminate\Support\Facades\Storage;
 use App\Services\DeploymentService;
+use Throwable;
 
 class DeployController extends Controller
 {
@@ -21,7 +21,6 @@ class DeployController extends Controller
                 'required',
                 'regex:/^(?!-)(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,}$/'
             ],
-
             'zip' => [
                 'required',
                 'file',
@@ -31,71 +30,69 @@ class DeployController extends Controller
 
         $zip = $request->file('zip');
 
-       $domain = strtolower(trim($request->domain));
+        $domain = strtolower(trim($request->domain));
 
-       $fileName = $domain . '.zip';
-       $path = $zip->storeAs(
-            'uploads',
-            $fileName,
-            'public'
-        );
-        
+        $fileName = $domain . '.zip';
 
-        // return response()->json([
-        //     'status' => true,
-        //     'message' => 'ZIP uploaded successfully.',
-        //     'domain' => $request->domain,
-        //     'zip_path' => storage_path('app/' . $path)
-        // ]);
-        // $ssh = new SSHService();
-        // $output = $ssh->execute('whoami');
-        // return response()->json([
-        //     'status' => true,
-        //     'domain' => $request->domain,
-        //     'ssh_output' => trim($output)
-        // ]);
-        // $deployment = new DeploymentService();
-        // $output = $deployment->createWebsiteFolder(
-        //     $request->domain
-        // );
-        // return response()->json([
-        //     'status' => true,
-        //     'domain' => $request->domain,
-        //     'message' => 'Website folder created successfully.',
-        //     'output' => trim($output)
-        // ]);
+        $disk = Storage::disk('local');
 
-        // $deployment = new DeploymentService();
+        if ($disk->exists('uploads/' . $fileName)) {
+            $disk->delete('uploads/' . $fileName);
+        }
 
-        // $deployment->createWebsiteFolder($domain);
+        $path = $zip->storeAs('uploads', $fileName, 'local');
 
-        // $remoteZip = $deployment->uploadZip(
-        //     $domain,
-        //     storage_path('app/'.$path)
-        // );
+        $localZip = $disk->path($path);
 
-        // return response()->json([
-        //     'status' => true,
-        //     'message' => 'ZIP uploaded successfully.',
-        //     'remote_zip' => $remoteZip
-        // ]);
+        if (!file_exists($localZip)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Local ZIP file not found.',
+                'path' => $localZip
+            ]);
+        }
+
         $deployment = new DeploymentService();
 
-        $deployment->createWebsiteFolder($domain);
+        try {
+            $siteResult = $deployment->registerSite($domain);
 
-        $deployment->uploadZip(
-            $domain,
-            storage_path('app/'.$path)
-        );
+            $deployment->createWebsiteFolder($domain);
 
-        $deployment->extractZip($domain);
+            $remoteZip = $deployment->uploadZip($domain, $localZip);
 
-        return response()->json([
-            'status' => true,
-            'message' => 'Website deployed successfully.'
-        ]);
+            $extractOutput = $deployment->extractZip($domain);
 
+            // SSL is attempted but never allowed to fail the whole
+            // deploy - the site + files are already live at this
+            // point even if certificate issuance has a hiccup
+            // (e.g. DNS not propagated yet for a brand new domain).
+            $sslResult = null;
+            $sslError = null;
+
+            try {
+                $sslResult = $deployment->applySsl($domain);
+            } catch (Throwable $e) {
+                $sslError = $e->getMessage();
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Website deployed successfully.',
+                'local_zip' => $localZip,
+                'remote_zip' => $remoteZip,
+                'extract_output' => $extractOutput,
+                'aapanel_site' => $siteResult,
+                'ssl' => $sslResult,
+                'ssl_error' => $sslError,
+            ]);
+
+        } catch (Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Deployment failed.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
-
-   
 }
