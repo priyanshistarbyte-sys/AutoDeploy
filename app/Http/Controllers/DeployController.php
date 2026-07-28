@@ -76,6 +76,17 @@ class DeployController extends Controller
                 $sslError = $e->getMessage();
             }
 
+            // Standard rewrite rules (pretty URLs -> .php pages),
+            // applied the same way to every deployed site.
+            $rewriteResult = null;
+            $rewriteError = null;
+
+            try {
+                $rewriteResult = $deployment->applyRewriteRules($domain);
+            } catch (Throwable $e) {
+                $rewriteError = $e->getMessage();
+            }
+
             return response()->json([
                 'status' => true,
                 'message' => 'Website deployed successfully.',
@@ -85,6 +96,8 @@ class DeployController extends Controller
                 'aapanel_site' => $siteResult,
                 'ssl' => $sslResult,
                 'ssl_error' => $sslError,
+                'rewrite' => $rewriteResult,
+                'rewrite_error' => $rewriteError,
             ]);
 
         } catch (Throwable $e) {

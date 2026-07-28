@@ -57,4 +57,31 @@ class DeploymentService
 
         return $this->ssh->execute($command);
     }
+
+    /**
+     * Writes the standard URL rewrite rules (pretty URLs -> .php
+     * pages) that every deployed site needs, and reloads Nginx so
+     * they take effect immediately. Content is sent base64-encoded
+     * over SSH so shell metacharacters like $ and ^ in the regex
+     * rules can't be misinterpreted.
+     */
+    public function applyRewriteRules($domain)
+    {
+        $rewriteDir = '/www/server/panel/vhost/rewrite';
+        $rewritePath = "{$rewriteDir}/{$domain}.conf";
+
+        $rules = <<<'CONF'
+        rewrite ^/blog/([^/]+)/?$ /blog.php?id=$1 break;
+        rewrite ^/about-us/?$ /about-us.php break;
+        rewrite ^/contact-us/?$ /contact-us.php break;
+        rewrite ^/privacy-policy/?$ /privacy-policy.php break;
+        rewrite ^/terms-of-service/?$ /terms-of-service.php break;
+        CONF;
+
+        $encoded = base64_encode($rules);
+
+        $command = "mkdir -p {$rewriteDir} && echo '{$encoded}' | base64 -d > {$rewritePath} && nginx -t && nginx -s reload";
+
+        return $this->ssh->execute($command);
+    }
 }
