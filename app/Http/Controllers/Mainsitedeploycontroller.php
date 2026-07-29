@@ -4,16 +4,11 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use App\Services\DeploymentService;
+use App\Services\MainSiteDeploymentService;
 use Throwable;
 
-class DeployController extends Controller
+class MainSiteDeployController extends Controller
 {
-    public function index()
-    {
-        return view('deploy');
-    }
-
     public function deploy(Request $request)
     {
         set_time_limit(300);
@@ -24,9 +19,9 @@ class DeployController extends Controller
                 'required',
                 'regex:/^(?!-)(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,}$/'
             ],
-            'main_url' => [
+            'ad_unit' => [
                 'required',
-                'regex:/^(?!-)(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,}$/'
+                'string',
             ],
             'zip' => [
                 'required',
@@ -38,7 +33,7 @@ class DeployController extends Controller
         $zip = $request->file('zip');
 
         $domain = strtolower(trim($request->domain));
-        $mainUrl = strtolower(trim($request->main_url));
+        $adUnit = trim($request->ad_unit);
 
         $fileName = $domain . '.zip';
 
@@ -60,7 +55,7 @@ class DeployController extends Controller
             ]);
         }
 
-        $deployment = new DeploymentService();
+        $deployment = new MainSiteDeploymentService();
         $warnings = [];
 
         try {
@@ -75,12 +70,10 @@ class DeployController extends Controller
 
             // Folder creation, extraction, flatten, placeholder
             // replace, and rewrite rules - all in ONE SSH round-trip.
-            $deployOutput = $deployment->deployFiles($domain, 'MAIN_URL', $mainUrl);
+            $deployOutput = $deployment->deployFiles($domain, 'AD_Unit', $adUnit);
 
             // SSL - non-fatal, and the slowest step (Let's Encrypt
-            // issues a real certificate over the internet, which can
-            // legitimately take 10-40+ seconds regardless of how our
-            // code is written).
+            // issues a real certificate over the internet).
             $sslResult = null;
             $sslError = null;
 
@@ -92,8 +85,8 @@ class DeployController extends Controller
             }
 
             $message = empty($warnings)
-                ? 'Website deployed successfully - site created, SSL installed, and rewrite rules applied.'
-                : 'Website deployed with ' . count($warnings) . ' warning(s) - see "warnings" below.';
+                ? 'Main site deployed successfully - site created, SSL installed, and rewrite rules applied.'
+                : 'Main site deployed with ' . count($warnings) . ' warning(s) - see "warnings" below.';
 
             return response()->json([
                 'status' => true,
@@ -111,7 +104,7 @@ class DeployController extends Controller
         } catch (Throwable $e) {
             return response()->json([
                 'status' => false,
-                'message' => 'Deployment failed.',
+                'message' => 'Main site deployment failed.',
                 'error' => $e->getMessage(),
             ], 500);
         }

@@ -7,16 +7,21 @@ use Exception;
 
 class SFTPService
 {
-    protected $sftp;
+    protected ?SFTP $sftp = null;
 
     public function connect()
     {
+        if ($this->sftp !== null) {
+            return $this->sftp;
+        }
+
         $this->sftp = new SFTP(env('SSH_HOST'), env('SSH_PORT'));
 
         if (!$this->sftp->login(
             env('SSH_USERNAME'),
             env('SSH_PASSWORD')
         )) {
+            $this->sftp = null;
             throw new Exception('SFTP Login Failed');
         }
 
@@ -34,15 +39,11 @@ class SFTPService
         );
 
         if (!$result) {
-            // phpseclib usually fails silently here if the remote
-            // parent directory doesn't exist yet - surface that.
             throw new Exception(
                 'SFTP upload failed. SFTP error: ' . $this->sftp->getLastSFTPError()
             );
         }
 
-        // Confirm the file is actually there and has content, not just
-        // that put() returned true.
         $stat = $this->sftp->stat($remoteFile);
         $remoteSize = $stat['size'] ?? false;
         if ($remoteSize === false || $remoteSize === 0) {

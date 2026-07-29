@@ -25,15 +25,6 @@ class DeploymentService
         return $this->aapanel->applySsl($domain);
     }
 
-    public function createWebsiteFolder($domain)
-    {
-        $path = "/www/wwwroot/$domain";
-
-        $this->ssh->execute("mkdir -p $path && find $path -mindepth 1 ! -name '.user.ini' -exec chmod 755 {} \\;");
-
-        return $path;
-    }
-
     public function uploadZip($domain, $localZip)
     {
         if (!file_exists($localZip)) {
@@ -47,40 +38,113 @@ class DeploymentService
         return $remoteZip;
     }
 
-    public function extractZip($domain)
+    /**
+     * Does everything that used to be 4 separate SSH round-trips
+     * (create folder, check unzip, extract+flatten, replace
+     * placeholder, write rewrite rules) in ONE ssh->execute() call.
+     * Each round-trip has real network latency to the VPS even with
+     * a reused connection, so collapsing them into a single script
+     * is the single biggest speed win available without touching
+     * external services like Let's Encrypt.
+     *
+     * @param string $domain
+     * @param string $placeholderToken e.g. "MAIN_URL" (without brackets)
+     * @param string $placeholderValue the value to replace [TOKEN] with
+     */
+    public function deployFiles($domain, $placeholderToken, $placeholderValue)
     {
         $remotePath = "/www/wwwroot/$domain";
-
-        $this->ssh->execute("which unzip");
-
-        $command = "cd $remotePath && unzip -o $domain.zip -x '.user.ini' && rm -f $domain.zip && find . -type d ! -name '.user.ini' -exec chmod 755 {} \\; && find . -type f ! -name '.user.ini' -exec chmod 644 {} \\;";
-
-        return $this->ssh->execute($command);
-    }
-
-    /**
-     * Writes the standard URL rewrite rules (pretty URLs -> .php
-     * pages) that every deployed site needs, and reloads Nginx so
-     * they take effect immediately. Content is sent base64-encoded
-     * over SSH so shell metacharacters like $ and ^ in the regex
-     * rules can't be misinterpreted.
-     */
-    public function applyRewriteRules($domain)
-    {
         $rewriteDir = '/www/server/panel/vhost/rewrite';
         $rewritePath = "{$rewriteDir}/{$domain}.conf";
 
-        $rules = <<<'CONF'
-        rewrite ^/blog/([^/]+)/?$ /blog.php?id=$1 break;
-        rewrite ^/about-us/?$ /about-us.php break;
-        rewrite ^/contact-us/?$ /contact-us.php break;
-        rewrite ^/privacy-policy/?$ /privacy-policy.php break;
-        rewrite ^/terms-of-service/?$ /terms-of-service.php break;
-        CONF;
+        $scriptTemplate = <<<'BASH'
+set -uo pipefail
 
-        $encoded = base64_encode($rules);
+REMOTE_PATH="__REMOTE_PATH__"
+DOMAIN="__DOMAIN__"
+REWRITE_DIR="__REWRITE_DIR__"
+REWRITE_PATH="__REWRITE_PATH__"
 
-        $command = "mkdir -p {$rewriteDir} && echo '{$encoded}' | base64 -d > {$rewritePath} && nginx -t && nginx -s reload";
+mkdir -p "$REMOTE_PATH"
+cd "$REMOTE_PATH" || exit 1
+
+command -v unzip >/dev/null 2>&1 || { echo "unzip not found on server" >&2; exit 1; }
+
+unzip -o "$DOMAIN.zip" -x '.user.ini'
+rm -f "$DOMAIN.zip"
+
+shopt -s dotglob nullglob
+
+default_files=(".user.ini" ".htaccess" "404.html" "502.html" "index.html")
+
+is_default() {
+  local f="$1"
+  for d in "${default_files[@]}"; do
+    if [ "$f" == "$d" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+entries=()
+for f in *; do
+  if ! is_default "$f"; then
+    entries+=("$f")
+  fi
+done
+
+if [ "${#entries[@]}" -eq 1 ] && [ -d "${entries[0]}" ]; then
+  inner="${entries[0]}"
+  mv "$inner"/* . 2>/dev/null || true
+  mv "$inner"/.[!.]* . 2>/dev/null || true
+  rmdir "$inner" 2>/dev/null || true
+fi
+
+find . -type d ! -name '.user.ini' -exec chmod 755 {} \;
+find . -type f ! -name '.user.ini' -exec chmod 644 {} \;
+
+grep -rl '\[__PLACEHOLDER_TOKEN__\]' "$REMOTE_PATH" 2>/dev/null | xargs -r sed -i 's#\[__PLACEHOLDER_TOKEN__\]#__PLACEHOLDER_VALUE__#g'
+
+mkdir -p "$REWRITE_DIR"
+cat > "$REWRITE_PATH" <<'EOR'
+rewrite ^/blog/([^/]+)/?$ /blog.php?id=$1 break;
+rewrite ^/about-us/?$ /about-us.php break;
+rewrite ^/contact-us/?$ /contact-us.php break;
+rewrite ^/privacy-policy/?$ /privacy-policy.php break;
+rewrite ^/terms-of-service/?$ /terms-of-service.php break;
+EOR
+
+nginx -t && nginx -s reload
+BASH;
+
+        $script = str_replace(
+            [
+                '__REMOTE_PATH__',
+                '__DOMAIN__',
+                '__REWRITE_DIR__',
+                '__REWRITE_PATH__',
+                '__PLACEHOLDER_TOKEN__',
+                '__PLACEHOLDER_VALUE__',
+            ],
+            [
+                $remotePath,
+                $domain,
+                $rewriteDir,
+                $rewritePath,
+                $placeholderToken,
+                $placeholderValue,
+            ],
+            $scriptTemplate
+        );
+
+        // Defensive: strip Windows-style carriage returns in case
+        // this file gets saved with CRLF line endings.
+        $script = str_replace("\r", '', $script);
+
+        $encoded = base64_encode($script);
+
+        $command = "echo '{$encoded}' | base64 -d | bash";
 
         return $this->ssh->execute($command);
     }

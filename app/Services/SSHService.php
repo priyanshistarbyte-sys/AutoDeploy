@@ -7,16 +7,28 @@ use Exception;
 
 class SSHService
 {
-    protected SSH2 $ssh;
+    protected ?SSH2 $ssh = null;
 
+    /**
+     * Reuses the existing connection if we already have one instead
+     * of opening a brand-new SSH session (with a full login
+     * handshake) on every single command. A DeploymentService
+     * instance lives for one request, so this connection gets
+     * reused across every ssh->execute() call in that request.
+     */
     public function connect()
     {
+        if ($this->ssh !== null) {
+            return $this->ssh;
+        }
+
         $this->ssh = new SSH2(env('SSH_HOST'), env('SSH_PORT'));
 
         if (!$this->ssh->login(
             env('SSH_USERNAME'),
             env('SSH_PASSWORD')
         )) {
+            $this->ssh = null;
             throw new Exception('SSH Login Failed.');
         }
 
@@ -33,13 +45,7 @@ class SSHService
     {
         $this->connect();
 
-        // Defensive: strip Windows-style carriage returns. If this file
-        // (or any command string built elsewhere) is ever saved with
-        // CRLF line endings, the stray \r characters get sent to the
-        // remote bash shell and break command parsing (e.g.
-        // "bash: line 1: $'\r': command not found", "find: missing
-        // argument to -exec"), even though the earlier parts of the
-        // chain (like unzip) may have already run successfully.
+        // Defensive: strip Windows-style carriage returns.
         $command = str_replace("\r", '', $command);
 
         $output = $this->ssh->exec($command);
